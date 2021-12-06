@@ -436,6 +436,7 @@ namespace Elements
     const int32u WAVE_axml=0x61786D6C;
     const int32u WAVE_bext=0x62657874;
     const int32u WAVE_bxml=0x62786D6C;
+    const int32u WAVE_chna=0x63686E61;
     const int32u WAVE_cue_=0x63756520;
     const int32u WAVE_data=0x64617461;
     const int32u WAVE_dbmd=0x64626D64;
@@ -634,6 +635,7 @@ void File_Riff::Data_Parse()
         ATOM(WAVE_bext)
         LIST(WAVE_bxml)
             break;
+        ATOM(WAVE_chna)
         LIST(WAVE_data)
             break;
         ATOM(WAVE_cue_)
@@ -3687,11 +3689,12 @@ void File_Riff::WAVE_axml()
 
     //Parsing
     File_Adm* Adm_New=new File_Adm;
+    Open_Buffer_Init(Adm_New);
+    if (Adm)
+        Adm_New->Chnas=Adm->Chnas;
     Adm_New->MuxingMode=(Element_Code==Elements::WAVE_bxml)?'b':'a';
     Adm_New->MuxingMode+="xml";
-    Open_Buffer_Init(Adm_New);
     Open_Buffer_Continue(Adm_New, UncompressedData, UncompressedData_Size);
-    Finish(Adm_New);
     if (Adm_New->Status[IsAccepted])
     {
         delete Adm;
@@ -3861,6 +3864,42 @@ void File_Riff::WAVE_bext()
                 Fill(Stream_Audio, 0, "MaxShortTermLoudness", (float)((int16s)MaxShortTermLoudness)/100, 2);
         }
     FILLING_END();
+}
+
+//---------------------------------------------------------------------------
+void File_Riff::WAVE_chna()
+{
+    Element_Name("Channels mapping");
+
+    //Parsing
+    int16u numUIDs;
+    if (!Adm)
+    {
+        Adm=new File_Adm;
+        Open_Buffer_Init(Adm);
+    }
+    if (!Adm->Chnas)
+        Adm->Chnas=new File_Adm::chnas;
+    File_Adm::chnas& Chnas=*Adm->Chnas;
+    Chnas.resize(Chnas.size()+1);
+    File_Adm::chna& Chna=Chnas[Chnas.size()-1];
+    Skip_L2(                                                    "numTracks");
+    Get_L2 (numUIDs,                                            "numUIDs");
+    for (int32u Pos=0; Pos<numUIDs; Pos++)
+    {
+        Element_Begin1("audioID");
+        int16u trackIndex;
+        string UID;
+        Get_L2 (trackIndex,                                     "trackIndex");
+        Get_String (12, UID,                                    "UID");
+        Skip_String(14,                                         "trackRef");
+        Skip_String(11,                                         "packRef");
+        Skip_L1(                                                "pad");
+        Chna.Ids[trackIndex].push_back(UID);
+        Element_End0();
+        if (Element_Offset>=Element_Size)
+            break;
+    }
 }
 
 //---------------------------------------------------------------------------

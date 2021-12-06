@@ -966,7 +966,7 @@ NewVersion_Question_Title;A new version was released!
 No;No
 Not yet;Not yet
 NumberOfChannelFormats;Number of channel formats
-NumberOfContents;Number of Contents
+NumberOfContents;Number of contents
 NumberOfDynamicObjects;Number of dynamic objects
 NumberOfElementaryStreams;Number of elementary streams
 NumberOfObjects;Number of objects
@@ -975,6 +975,8 @@ NumberOfPresentations;Number of presentations
 NumberOfProgrammes;Number of programmes
 NumberOfSubstreams;Number of substreams
 NumberOfTrackUIDs;Number of track UIDs
+NumberOfTrackFormats;Number of track formats
+NumberOfStreamFormats;Number of stream formats
 NumColors;Number of colors
 ObjectCount;Object Count
 OK;OK
@@ -1213,8 +1215,11 @@ TotalNumberOfParts;Total Number Of Parts
 TotalProgrammeDuration;Total Programme Duration
 Track;Track name
 Track_Count;Track count
+TrackIndex;Track index
+TrackUID;TrackUID
 transfer_characteristics;Transfer characteristics
 Translator;Translator
+Transport;Transport
 Tree;Tree
 Tree & Text;Tree & Text
 TruePeakLevel;True peak level

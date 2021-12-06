@@ -386,11 +386,14 @@ public:
     int Version;
     bool DolbyProfileCanNotBeVersion1;
     vector<profile_info> profileInfos;
+    File_Adm::chnas Chnas;
 
     void parse();
     void coreMetadata();
     void format();
     void audioFormatExtended();
+    void frameHeader();
+    void transportTrackFormat();
 
     file_adm_private() {
         Version = 0;
@@ -559,6 +562,9 @@ void file_adm_private::format()
         }
         if (!tfsxml_strcmp_charp(b, "audioFormatExtended")) {
             audioFormatExtended();
+        }
+        if (!tfsxml_strcmp_charp(b, "frameHeader")) {
+            frameHeader();
         }
     }
 }
@@ -806,6 +812,44 @@ void file_adm_private::audioFormatExtended()
     }
 }
 
+void file_adm_private::frameHeader()
+{
+    tfsxml_string v;
+    tfsxml_enter(&p);
+    while (!tfsxml_next(&p, &v)) {
+        if (!tfsxml_strcmp_charp(v, "transportTrackFormat")) {
+            transportTrackFormat();
+        }
+    }
+}
+
+void file_adm_private::transportTrackFormat()
+{
+    Chnas.resize(Chnas.size() + 1);
+    File_Adm::chna& Chna = Chnas[Chnas.size() - 1];
+
+    tfsxml_string a, v;
+    tfsxml_enter(&p);
+    while (!tfsxml_next(&p, &v)) {
+        if (!tfsxml_strcmp_charp(v, "audioTrack")) {
+            int32u trackID=0;
+            while (!tfsxml_attr(&p, &a, &v)) {
+                if (!tfsxml_strcmp_charp(a, "trackID")) {
+                    trackID = Ztring().From_UTF8(v.buf, v.len).To_int32u();
+                }
+            }
+
+            tfsxml_enter(&p);
+            while (!tfsxml_next(&p, &v)) {
+                if (!tfsxml_strcmp_charp(v, "audioTrackUIDRef")) {
+                    if (!tfsxml_value(&p, &v)) {
+                        Chna.Ids[trackID].push_back(tfsxml_decode(v));
+                    }
+                }
+            }
+        }
+    }
+}
 
 //***************************************************************************
 // Constructor/Destructor
@@ -819,6 +863,8 @@ File_Adm::File_Adm()
     Buffer_MaximumSize = 256 * 1024 * 1024;
 
     File_Adm_Private = new file_adm_private();
+
+    Chnas = NULL;
 }
 
 //---------------------------------------------------------------------------
@@ -832,31 +878,8 @@ File_Adm::~File_Adm()
 //***************************************************************************
 
 //---------------------------------------------------------------------------
-bool File_Adm::FileHeader_Begin()
+void File_Adm::Streams_Fill()
 {
-    // File must be fully loaded
-    if (!IsSub && Buffer_Size < File_Size)
-    {
-        if (Buffer_Size >= 5 && Buffer[0]!='<' && Buffer[1]!='?' && Buffer[2]!='x' && Buffer[3] != 'm' && Buffer[4]!='l')
-        {
-            Reject();
-            return false;
-        }
-
-        Element_WaitForMoreData();
-        return false; //Must wait for more data
-    }
-
-    if (tfsxml_init(&File_Adm_Private->p, (void*)(Buffer), Buffer_Size))
-        return true;
-    File_Adm_Private->parse();
-    if (File_Adm_Private->Items[item_audioContent].Items.empty())
-    {
-        Reject();
-        return false;
-    }
-
-
     #define FILL_COUNT(NAME,FIELD) \
         if (!File_Adm_Private->Items[item_##NAME].Items.empty()) \
             Fill(Stream_Audio, 0, "NumberOf" FIELD "s", File_Adm_Private->Items[item_##NAME].Items.size());
@@ -878,7 +901,6 @@ bool File_Adm::FileHeader_Begin()
         Apply_SubStreams(*this, P + " LinkedTo_" FIELD "_Pos", File_Adm_Private->Items[item_##NAME].Items[i], NAME##_##VECTOR, File_Adm_Private->Items[item_##TARGET]); \
 
     //Filling
-    Accept("ADM");
     Stream_Prepare(Stream_Audio);
     if (!IsSub)
         Fill(Stream_Audio, StreamPos_Last, Audio_Format, "ADM");
@@ -930,7 +952,7 @@ bool File_Adm::FileHeader_Begin()
     size_t TotalCount = 0;
     for (size_t i = 0; i < item_Max; i++)
         TotalCount += File_Adm_Private->Items[i].Items.size();
-    bool Full = TotalCount < 100 ? true : false;
+    bool Full = TotalCount < 0x100 ? true : false;
     FILL_COUNT(audioProgramme, "Programme");
     FILL_COUNT(audioContent, "Content");
     FILL_COUNT(audioObject, "Object");
@@ -1088,7 +1110,32 @@ bool File_Adm::FileHeader_Begin()
             LINK(audioStreamFormat, "TrackFormat", audioTrackFormatIDRef, audioTrackFormat);
         }
     }
-    else
+
+    File_Adm::chnas& Chnas = (!File_Adm_Private->Chnas.empty() || !File_Adm::Chnas) ? File_Adm_Private->Chnas : *File_Adm::Chnas;
+    for (size_t i = 0; i < Chnas.size(); i++)
+    {
+        chna& Chna = Chnas[i];
+        string Name = "Transport" + Ztring::ToZtring(i).To_UTF8();
+        Fill(Stream_Audio, 0, Name.c_str(), "Yes");
+        if (Chna.Ids.empty())
+            continue;
+        size_t Offset = Chna.Ids.begin()->first ? 1 : 0;
+        for (map<int32u, vector<string> >::const_iterator Id = Chna.Ids.begin(); Id != Chna.Ids.end(); ++Id)
+        {
+            string TrackName = Name + " TrackIndex" + Ztring::ToZtring(Id->first - Offset).To_UTF8();
+            ZtringList List;
+            List.Separator_Set(0, " / ");
+            for (size_t k = 0; k < Id->second.size(); k++)
+                List.push_back(Ztring().From_UTF8(Id->second[k].c_str()));
+            Fill(Stream_Audio, 0, TrackName.c_str(), List.Read());
+            Fill(Stream_Audio, 0, (TrackName + " TrackIndex").c_str(), Id->first);
+            Fill_SetOptions(Stream_Audio, 0, (TrackName + " TrackIndex").c_str(), "N NIY");
+            Fill(Stream_Audio, 0, (TrackName + " TrackUID").c_str(), Retrieve_Const(Stream_Audio, 0, TrackName.c_str()));
+            Fill_SetOptions(Stream_Audio, 0, (TrackName + " TrackUID").c_str(), "N NTY");
+        }
+    }
+
+    if (!Full)
         Fill(Stream_Audio, 0, "PartialDisplay", "Yes");
 
     for (size_t k = 0; k < error_Type_Max; k++) {
@@ -1101,11 +1148,39 @@ bool File_Adm::FileHeader_Begin()
     }
 
     Element_Offset=File_Size;
-    delete File_Adm_Private; File_Adm_Private = NULL;
+}
 
+//***************************************************************************
+// Buffer - File header
+//***************************************************************************
+
+//---------------------------------------------------------------------------
+bool File_Adm::FileHeader_Begin()
+{
+    // File must be fully loaded
+    if (!IsSub && Buffer_Size < File_Size)
+    {
+        if (Buffer_Size && Buffer[0] != '<')
+        {
+            Reject();
+            return false;
+        }
+
+        Element_WaitForMoreData();
+        return false; //Must wait for more data
+    }
+
+    if (tfsxml_init(&File_Adm_Private->p, (void*)(Buffer), Buffer_Size))
+        return true;
+    File_Adm_Private->parse();
+    if (File_Adm_Private->Items[item_audioContent].Items.empty())
+    {
+        Reject();
+        return false;
+    }
 
     //All should be OK...
-    Fill("ADM");
+    Accept("ADM");
     return true;
 }
 

@@ -17,6 +17,7 @@
 
 //---------------------------------------------------------------------------
 #include "MediaInfo/File__Analyze.h"
+#include <map>
 //---------------------------------------------------------------------------
 
 namespace MediaInfoLib
@@ -33,12 +34,21 @@ class File_Adm : public File__Analyze
 public :
     //In
     string MuxingMode;
+    struct chna
+    {
+        map<int32u, vector<string> > Ids;
+    };
+    typedef vector<chna> chnas;
+    chnas* Chnas;
 
     //Constructor/Destructor
     File_Adm();
     ~File_Adm();
 
 private :
+    //Streams management
+    void Streams_Fill();
+
     //Buffer - File header
     bool FileHeader_Begin();
 
